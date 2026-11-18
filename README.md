@@ -1,6 +1,6 @@
 # Matching tool
 
-This bound Google Apps Script adds **Home Depot → Apply selected audit rows** to the reconciliation workbook. Select reviewed audit rows and confirm the preview to post. It writes signed amounts to `JULY!H` and records them in the application log.
+This bound Google Apps Script adds **Home Depot → Apply approved candidates** to the reconciliation workbook. Set column A to Candidate 1, Candidate 2, or Candidate 3 on the rows you want to post, then run the menu command and confirm the preview. The command scans the whole audit, including filtered-out rows. It writes signed amounts to `JULY!H` and records them in the application log.
 
 ## Connect the existing Apps Script project
 

@@ -7,7 +7,7 @@ const LOG_HEADERS = ['Audit key', 'Posted at', 'Transaction ID', 'Order number',
 
 function onOpen() {
   SpreadsheetApp.getUi().createMenu('Home Depot')
-    .addItem('Apply selected audit rows', 'applySelectedHomeRows').addToUi();
+    .addItem('Apply approved candidates', 'applySelectedHomeRows').addToUi();
 }
 
 function applySelectedHomeRows() {
@@ -16,19 +16,16 @@ function applySelectedHomeRows() {
     const book = SpreadsheetApp.getActive();
     const audit = book.getActiveSheet();
     if (audit.getName() !== AUDIT) {
-      throw new Error('Open the July Home Match Audit 2026 tab and select the rows to post.');
+      throw new Error('Open the July Home Match Audit 2026 tab before applying candidates.');
     }
-    const selection = book.getActiveRangeList().getRanges();
-    const rows = [...new Set(selection.flatMap(range =>
-      Array.from({length: range.getNumRows()}, (_, i) => range.getRow() + i)
-    ))].filter(row => row > 1 && row <= audit.getLastRow()).sort((a, b) => a - b);
+    const rows = approvedCandidateRows_(audit);
     const preview = planHomePosting_(book, rows);
     const summary = preview.items.map(item =>
       '#' + item.row + ' ' + item.name + '  ' + item.amount.toFixed(2) +
       (item.recovery ? ' (verify prior posting)' : '')).join('\n');
     const skipped = preview.skipped.join('\n');
     if (!preview.items.length) {
-      ui.alert('Nothing to apply', skipped || 'Select at least one audit data row.', ui.ButtonSet.OK);
+      ui.alert('Nothing to apply', skipped || 'Choose Candidate 1, Candidate 2, or Candidate 3 in column A.', ui.ButtonSet.OK);
       return;
     }
     if (ui.alert('Confirm Home Depot posting',
@@ -38,7 +35,7 @@ function applySelectedHomeRows() {
     lock.waitLock(30000);
     let message;
     try {
-      const live = planHomePosting_(book, rows);
+      const live = planHomePosting_(book, approvedCandidateRows_(audit));
       if (JSON.stringify(live) !== JSON.stringify(preview)) {
         throw new Error('The audit or job totals changed during review. Run the preview again.');
       }
@@ -233,4 +230,11 @@ function normalizeSourceKey_(key) {
   // The audit export uses null for a missing invoice. getDisplayValues uses ''.
   if (fields[6] === null) fields[6] = '';
   return JSON.stringify(fields);
+}
+
+function approvedCandidateRows_(audit) {
+  const count = audit.getLastRow() - 1;
+  if (count < 1) return [];
+  return audit.getRange(2, 1, count, 1).getValues().flatMap(([choice], i) =>
+    /^Candidate [123]$/.test(choice) ? [i + 2] : []);
 }
