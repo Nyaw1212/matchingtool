@@ -163,12 +163,9 @@ function commitHomePosting_(book, plan) {
       fields: 'userEnteredValue'}});
     Sheets.Spreadsheets.batchUpdate({requests}, book.getId());
   }
-  // Verify independently before writing APPLIED. A retry can recover from a failed status write.
-  const verified = planHomePosting_(book, plan.items.map(item => item.row));
-  if (verified.items.length !== plan.items.length ||
-      verified.items.some((item, i) => !item.recovery || item.key !== plan.items[i].key)) {
-    throw new Error('Posting verification did not pass. Inspect the application log before retrying.');
-  }
+  // Read back through the same API that performed the write to avoid cached Apps Script reads.
+  verifyHomePosting_(book.getId(), plan.items, totals, terms);
+  const verified = plan.items;
   const headers = audit.getRange(1, 1, 1, audit.getLastColumn()).getValues()[0];
   const pos = name => headers.indexOf(name);
   const updates = verified.items.flatMap(item => [
@@ -237,4 +234,31 @@ function approvedCandidateRows_(audit) {
   if (count < 1) return [];
   return audit.getRange(2, 1, count, 1).getValues().flatMap(([choice], i) =>
     /^Candidate [123]$/.test(choice) ? [i + 2] : []);
+}
+
+function verifyHomePosting_(bookId, items, totals, terms) {
+  const destinations = [...new Map(items.map(item => [item.dest, item])).values()];
+  const ranges = ["'" + LEDGER + "'!A:L", ...destinations.map(item => 'JULY!H' + item.dest)];
+  const live = Sheets.Spreadsheets.Values.batchGet(bookId, {
+    ranges, valueRenderOption: 'UNFORMATTED_VALUE'
+  }).valueRanges;
+  const log = (live[0].values || []).slice(1);
+  const receiptsVerified = items.every(item => {
+    const matches = log.filter(rec => rec[0] === item.key);
+    return matches.length === 1 && matches[0].slice(4, 9).every((value, i) =>
+      value === [item.amount, item.name, item.type, item.start, item.end][i]);
+  });
+  const costsVerified = destinations.every((item, i) => {
+    const amount = live[i + 1].values?.[0]?.[0];
+    return typeof amount === 'number' && cents_(amount) ===
+      (totals.get(item.dest) ?? cents_(item.current));
+  });
+  const formulas = terms.size ? Sheets.Spreadsheets.Values.batchGet(bookId, {
+    ranges: [...terms.keys()].map(row => 'JULY!H' + row), valueRenderOption: 'FORMULA'
+  }).valueRanges : [];
+  const formulasVerified = [...terms.values()].every((amounts, i) =>
+    formulas[i]?.values?.[0]?.[0] === postingFormula_(amounts));
+  if (!receiptsVerified || !costsVerified || !formulasVerified) {
+    throw new Error('Posting verification did not pass. Inspect the application log before retrying.');
+  }
 }
