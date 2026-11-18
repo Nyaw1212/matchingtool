@@ -88,9 +88,10 @@ function planHomePosting_(book, rows) {
       if (!key || data.slice(1).filter(r => r[col('Audit key')] === key).length !== 1) {
         throw new Error('Audit key is missing or repeated.');
       }
-      const matching = sources.filter(s => JSON.stringify(
+      const sourceKey = normalizeSourceKey_(key);
+      const matching = sources.filter(s => normalizeSourceKey_(
         [s[3],s[4],s[5],s[2],s[0] || s[1],s[12],s[16],parseMoney_(s[11])]
-      ) === key);
+      ) === sourceKey);
       if (matching.length !== 1) throw new Error('Source transaction could not be uniquely reverified.');
       const s = matching[0];
       const [date, amount] = [s[0] || s[1], parseMoney_(s[11])];
@@ -225,4 +226,11 @@ function postingFormula_(amounts) {
     const sign = amount < 0 ? '-' : i ? '+' : '';
     return sign + (Math.abs(amount) / 100).toFixed(2);
   }).join('');
+}
+
+function normalizeSourceKey_(key) {
+  const fields = typeof key === 'string' ? JSON.parse(key) : [...key];
+  // The audit export uses null for a missing invoice. getDisplayValues uses ''.
+  if (fields[6] === null) fields[6] = '';
+  return JSON.stringify(fields);
 }
