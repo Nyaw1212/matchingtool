@@ -115,10 +115,10 @@ function planHomePosting_(book, rows) {
       const end = jobDate_(book, job[4]);
       const sameJob = rec => rec[5] === job[0] && rec[6] === job[1] &&
         rec[7] === start && rec[8] === end;
-      if (formulas[i][0]) throw new Error('Destination cost contains a formula.');
+      const jobRecords = records.filter(sameJob);
       const current = job[7] === '' ? 0 : parseMoney_(job[7]);
-      const logged = records.filter(sameJob).reduce((total, rec) => total + cents_(rec[4]), 0);
-      if (!Number.isFinite(current) || cents_(current) !== logged) {
+      const logged = jobRecords.reduce((total, rec) => total + cents_(rec[4]), 0);
+      if (!Number.isFinite(current) || cents_(current) !== logged || (formulas[i][0] && formulas[i][0] !== postingFormula_(jobRecords.map(rec => cents_(rec[4]))))) {
         throw new Error('Existing cost cannot be reconciled to the application log.');
       }
       const previous = known.get(key);
@@ -126,7 +126,7 @@ function planHomePosting_(book, rows) {
         throw new Error('Previously logged posting differs from this selection.');
       }
       items.push({row, key, choice, name: job[0], type: job[1], start, end, dest: i + 1,
-        amount, current, transaction: s[4], order: s[12], recovery: Boolean(previous)});
+        amount, current, terms: jobRecords.map(rec => cents_(rec[4])), transaction: s[4], order: s[12], recovery: Boolean(previous)});
     } catch (error) {
       skipped.push('#' + row + ' ' + error.message);
     }
@@ -140,12 +140,14 @@ function commitHomePosting_(book, plan) {
   let log = book.getSheetByName(LEDGER);
   const totals = new Map();
   const entries = [];
+  const terms = new Map();
   const now = new Date().toISOString();
   for (const item of plan.items) {
     if (item.recovery) continue;
     const before = totals.get(item.dest) ?? cents_(item.current);
     const after = before + cents_(item.amount);
     totals.set(item.dest, after);
+    terms.set(item.dest, [...(terms.get(item.dest) ?? item.terms), cents_(item.amount)]);
     entries.push([item.key, now, item.transaction, item.order, item.amount, item.name, item.type,
       item.start, item.end, item.dest, before / 100, after / 100]);
   }
@@ -157,8 +159,8 @@ function commitHomePosting_(book, plan) {
       SpreadsheetApp.flush();
     }
     // A single Sheets API batch commits both the job totals and their ledger entries.
-    const requests = [...totals].map(([row, total]) =>
-      writeCells_(july.getSheetId(), row - 1, 7, [[total / 100]]));
+    const requests = [...terms].map(([row, amounts]) =>
+      writeCells_(july.getSheetId(), row - 1, 7, [[{formulaValue: postingFormula_(amounts)}]]));
     requests.push({appendCells: {sheetId: log.getSheetId(), rows: entries.map(cellRow_),
       fields: 'userEnteredValue'}});
     Sheets.Spreadsheets.batchUpdate({requests}, book.getId());
@@ -197,7 +199,7 @@ function writeCells_(sheetId, rowIndex, columnIndex, values) {
 }
 function cellRow_(values) {
   return {values: values.map(value => ({userEnteredValue: typeof value === 'number'
-    ? {numberValue: value} : {stringValue: String(value)}}))};
+    ? {numberValue: value} : typeof value === 'object' ? value : {stringValue: String(value)}}))};
 }
 function jobDate_(book, value) {
   return value instanceof Date ? Utilities.formatDate(value, book.getSpreadsheetTimeZone(), 'M/d/yyyy')
@@ -216,3 +218,11 @@ function cents_(amount) {
 }
 
 
+
+function postingFormula_(amounts) {
+  if (!amounts.length) return '';
+  return '=' + amounts.map((amount, i) => {
+    const sign = amount < 0 ? '-' : i ? '+' : '';
+    return sign + (Math.abs(amount) / 100).toFixed(2);
+  }).join('');
+}
