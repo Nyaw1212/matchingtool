@@ -97,7 +97,7 @@ function planHomePosting_(book, rows) {
           s[4] !== String(cell('Transaction ID')) || s[12] !== String(cell('Order number'))) {
         throw new Error('Source date, identifiers or amount changed.');
       }
-      if (!s[4] || !s[12] || sources.some(other => other !== s && (other[4] === s[4] || other[12] === s[12]))) {
+      if (!s[4] || !s[12] || sources.some(other => other !== s && supplierConflict_(s, other))) {
         throw new Error('Missing or shared supplier identifier; reconcile this receipt manually.');
       }
       const name = override || cell('Candidate ' + rank);
@@ -261,4 +261,9 @@ function verifyHomePosting_(bookId, items, totals, terms) {
   if (!receiptsVerified || !costsVerified || !formulasVerified) {
     throw new Error('Posting verification did not pass. Inspect the application log before retrying.');
   }
+}
+
+function supplierConflict_(receipt, other) {
+  return receipt[12] === other[12] ||
+    (receipt[2] === other[2] && receipt[5] === other[5] && receipt[4] === other[4]);
 }
